@@ -12,9 +12,15 @@ type Service struct {
 	Port        int    `yaml:"port" toml:"Port"`
 }
 
+type Logging struct {
+	LogLevel string
+	LogFile  string
+}
+
 type Config struct {
 	Handler Service `yaml:"handler" toml:"Handler"`
 	Checker Service `yaml:"checker" toml:"Checker"`
+	Logging Logging `yaml:"logging" toml:"Logging"`
 }
 
 // GetConfig creates a new config from a given environment
