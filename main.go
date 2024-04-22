@@ -4,6 +4,8 @@ import (
 	"context"
 	"emperror.dev/errors"
 	"flag"
+	"github.com/je4/filesystem/v2/pkg/vfsrw"
+	"github.com/je4/utils/v2/pkg/checksum"
 	"github.com/je4/utils/v2/pkg/zLogger"
 	"github.com/rs/zerolog"
 	"gitlab.switch.ch/ub-unibas/dlza/dlza-manager/dlzamanagerproto"
@@ -58,6 +60,54 @@ func main() {
 	if err != nil {
 		daLogger.Errorf("cannot get all object instances: %v", err)
 	}
-	_ = objectInstances
+	for _, objectInstance := range objectInstances.ObjectInstances {
+		storageLocation, err := CheckerHandlerServiceClient.GetStorageLocationByObjectInstanceId(ctx, &dlzamanagerproto.Id{Id: objectInstance.Id})
+		if err != nil {
+			daLogger.Errorf("cannot get all storage location for object instance id %s, %v", objectInstance.Id, err)
+		}
+		vfsConfig, err := configuration.LoadVfsConfig(storageLocation.Connection)
+		if err != nil {
+			daLogger.Errorf("error mapping json for storage location connection field: %v", err)
+		}
+		vfs, err := vfsrw.NewFS(vfsConfig, daLogger)
 
+		sourceFP, err := vfs.Open(objectInstance.Path)
+		if err != nil {
+			//ToDo If file does not exist add new error entity
+			daLogger.Errorf("cannot read file '%s': %v", objectInstance.Path, err)
+		}
+
+		targetFP := io.Discard
+		csWriter, err := checksum.NewChecksumWriter(
+			[]checksum.DigestAlgorithm{checksum.DigestSHA512},
+			targetFP,
+		)
+
+		_size, err := io.Copy(csWriter, sourceFP)
+		if err != nil {
+			daLogger.Errorf("error writing file")
+			if err := csWriter.Close(); err != nil {
+				daLogger.Errorf("cannot close checksum writer: %v", err)
+			}
+			if err := sourceFP.Close(); err != nil {
+				daLogger.Errorf("cannot close source: %v", err)
+			}
+		}
+		if err := csWriter.Close(); err != nil {
+			daLogger.Errorf("cannot close checksum writer: %v", err)
+		}
+		checksums, err := csWriter.GetChecksums()
+		if err != nil {
+			if err := sourceFP.Close(); err != nil {
+				daLogger.Errorf("cannot close source: %v", err)
+			}
+			daLogger.Errorf("cannot get checksum: %v", err)
+		}
+		_ = checksums
+		_ = _size
+
+		if err := sourceFP.Close(); err != nil {
+			daLogger.Errorf("cannot close source: %v", err)
+		}
+	}
 }
