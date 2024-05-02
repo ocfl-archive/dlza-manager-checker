@@ -9,6 +9,7 @@ import (
 	"github.com/je4/utils/v2/pkg/zLogger"
 	"github.com/rs/zerolog"
 	"gitlab.switch.ch/ub-unibas/dlza/dlza-manager/dlzamanagerproto"
+	pb "gitlab.switch.ch/ub-unibas/dlza/microservices/dlza-manager-handler/handlerproto"
 	"io"
 	"log"
 	"os"
@@ -22,6 +23,11 @@ import (
 )
 
 var configParam = flag.String("config", "", "config file in toml format")
+
+const (
+	errorStatus = "error"
+	okStatus    = "ok"
+)
 
 func main() {
 
@@ -73,8 +79,15 @@ func main() {
 
 		sourceFP, err := vfs.Open(objectInstance.Path)
 		if err != nil {
-			//ToDo If file does not exist add new error entity
 			daLogger.Errorf("cannot read file '%s': %v", objectInstance.Path, err)
+			objectInstance.Status = errorStatus
+			message := "cannot read file " + objectInstance.Path
+
+			err := updateInstanceAndCreateCheck(ctx, CheckerHandlerServiceClient, objectInstance, message)
+			if err != nil {
+				daLogger.Errorf("cannot update instance or create instance check object for file %s, %v", objectInstance.Path, err)
+			}
+			continue
 		}
 
 		targetFP := io.Discard
@@ -103,11 +116,47 @@ func main() {
 			}
 			daLogger.Errorf("cannot get checksum: %v", err)
 		}
-		_ = checksums
 		_ = _size
+		_ = checksums
+
+		object, err := CheckerHandlerServiceClient.GetObjectById(ctx, &dlzamanagerproto.Id{Id: objectInstance.ObjectId})
+		if err != nil {
+			daLogger.Errorf("cannot get object with id %s, %v", objectInstance.ObjectId, err)
+			if err := sourceFP.Close(); err != nil {
+				daLogger.Errorf("cannot close source: %v", err)
+			}
+			continue
+		}
+		var status string
+		var message string
+		if object.Checksum != checksums["sha512"] {
+			daLogger.Warningf("checksum check failed for object %s, checksums are not matching", objectInstance.Path)
+			status = errorStatus
+			message = "checksum check failed for object " + objectInstance.Path
+		} else {
+			status = okStatus
+		}
+		objectInstance.Status = status
+		err = updateInstanceAndCreateCheck(ctx, CheckerHandlerServiceClient, objectInstance, message)
+		if err != nil {
+			daLogger.Errorf("cannot update instance or create instance check object for file %s, %v", objectInstance.Path, err)
+		}
 
 		if err := sourceFP.Close(); err != nil {
 			daLogger.Errorf("cannot close source: %v", err)
 		}
 	}
+}
+
+func updateInstanceAndCreateCheck(ctx context.Context, checkerHandlerServiceClient pb.CheckerHandlerServiceClient, objectInstance *dlzamanagerproto.ObjectInstance, message string) error {
+	_, err := checkerHandlerServiceClient.UpdateObjectInstance(ctx, objectInstance)
+	if err != nil {
+		return err
+	}
+	_, err = checkerHandlerServiceClient.CreateObjectInstanceCheck(ctx, &dlzamanagerproto.ObjectInstanceCheck{ObjectInstanceId: objectInstance.Id,
+		Error: true, Message: message})
+	if err != nil {
+		return err
+	}
+	return nil
 }
