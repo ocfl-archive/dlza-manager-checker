@@ -83,7 +83,7 @@ func main() {
 			objectInstance.Status = errorStatus
 			message := "cannot read file " + objectInstance.Path
 
-			err := updateInstanceAndCreateCheck(ctx, CheckerHandlerServiceClient, objectInstance, message)
+			err := updateInstanceAndCreateCheck(ctx, CheckerHandlerServiceClient, objectInstance, true, message)
 			if err != nil {
 				daLogger.Errorf("cannot update instance or create instance check object for file %s, %v", objectInstance.Path, err)
 			}
@@ -129,15 +129,18 @@ func main() {
 		}
 		var status string
 		var message string
+		var errorCheck bool
 		if object.Checksum != checksums["sha512"] {
-			daLogger.Warningf("checksum check failed for object %s, checksums are not matching", objectInstance.Path)
+			daLogger.Errorf("checksum check failed for object %s, checksums are not matching", objectInstance.Path)
 			status = errorStatus
-			message = "checksum check failed for object " + objectInstance.Path
+			message = "checksum check failed for object, checksums are not matching" + objectInstance.Path
+			errorCheck = true
 		} else {
 			status = okStatus
+			errorCheck = false
 		}
 		objectInstance.Status = status
-		err = updateInstanceAndCreateCheck(ctx, CheckerHandlerServiceClient, objectInstance, message)
+		err = updateInstanceAndCreateCheck(ctx, CheckerHandlerServiceClient, objectInstance, errorCheck, message)
 		if err != nil {
 			daLogger.Errorf("cannot update instance or create instance check object for file %s, %v", objectInstance.Path, err)
 		}
@@ -148,13 +151,13 @@ func main() {
 	}
 }
 
-func updateInstanceAndCreateCheck(ctx context.Context, checkerHandlerServiceClient pb.CheckerHandlerServiceClient, objectInstance *dlzamanagerproto.ObjectInstance, message string) error {
+func updateInstanceAndCreateCheck(ctx context.Context, checkerHandlerServiceClient pb.CheckerHandlerServiceClient, objectInstance *dlzamanagerproto.ObjectInstance, errorCheck bool, message string) error {
 	_, err := checkerHandlerServiceClient.UpdateObjectInstance(ctx, objectInstance)
 	if err != nil {
 		return err
 	}
 	_, err = checkerHandlerServiceClient.CreateObjectInstanceCheck(ctx, &dlzamanagerproto.ObjectInstanceCheck{ObjectInstanceId: objectInstance.Id,
-		Error: true, Message: message})
+		Error: errorCheck, Message: message})
 	if err != nil {
 		return err
 	}
