@@ -130,7 +130,7 @@ func main() {
 		var status string
 		var message string
 		var errorCheck bool
-		if object.Checksum != checksums["sha512"] {
+		if object.Checksum != checksums[checksum.DigestSHA512] {
 			daLogger.Errorf("checksum check failed for object %s, checksums are not matching", objectInstance.Path)
 			status = errorStatus
 			message = "checksum check failed for object, checksums are not matching" + objectInstance.Path
