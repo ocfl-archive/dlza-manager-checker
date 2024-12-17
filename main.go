@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"emperror.dev/errors"
 	"flag"
+	"fmt"
 	configutil "github.com/je4/utils/v2/pkg/config"
 	"github.com/je4/utils/v2/pkg/zLogger"
 	handlerClientProto "github.com/ocfl-archive/dlza-manager-handler/handlerproto"
@@ -139,104 +141,78 @@ func main() {
 	if err != nil {
 		logger.Error().Msgf("cannot get all object instances: %v", err)
 	}
-	_ = objectInstances
-	/*
-			for _, objectInstance := range objectInstances.ObjectInstances {
-				storageLocation, err := CheckerHandlerServiceClient.GetStorageLocationByObjectInstanceId(ctx, &dlzamanagerproto.Id{Id: objectInstance.Id})
-				if err != nil {
-					daLogger.Errorf("cannot get all storage location for object instance id %s, %v", objectInstance.Id, err)
-				}
-				vfsConfig, err := configuration.LoadVfsConfig(storageLocation.Connection)
-				if err != nil {
-					daLogger.Errorf("error mapping json for storage location connection field: %v", err)
-				}
-				vfs, err := vfsrw.NewFS(vfsConfig, daLogger)
 
-				sourceFP, err := vfs.Open(objectInstance.Path)
-				if err != nil {
-					daLogger.Errorf("cannot read file '%s': %v", objectInstance.Path, err)
-					objectInstance.Status = errorStatus
-					message := "cannot read file " + objectInstance.Path
-
-					err := updateInstanceAndCreateCheck(ctx, CheckerHandlerServiceClient, objectInstance, true, message)
-					if err != nil {
-						daLogger.Errorf("cannot update instance or create instance check object for file %s, %v", objectInstance.Path, err)
-					}
-					continue
-				}
-
-				targetFP := io.Discard
-				csWriter, err := checksum.NewChecksumWriter(
-					[]checksum.DigestAlgorithm{checksum.DigestSHA512},
-					targetFP,
-				)
-
-				_size, err := io.Copy(csWriter, sourceFP)
-				if err != nil {
-					daLogger.Errorf("error writing file")
-					if err := csWriter.Close(); err != nil {
-						daLogger.Errorf("cannot close checksum writer: %v", err)
-					}
-					if err := sourceFP.Close(); err != nil {
-						daLogger.Errorf("cannot close source: %v", err)
-					}
-				}
-				if err := csWriter.Close(); err != nil {
-					daLogger.Errorf("cannot close checksum writer: %v", err)
-				}
-				checksums, err := csWriter.GetChecksums()
-				if err != nil {
-					if err := sourceFP.Close(); err != nil {
-						daLogger.Errorf("cannot close source: %v", err)
-					}
-					daLogger.Errorf("cannot get checksum: %v", err)
-				}
-				_ = _size
-				_ = checksums
-
-				object, err := CheckerHandlerServiceClient.GetObjectById(ctx, &dlzamanagerproto.Id{Id: objectInstance.ObjectId})
-				if err != nil {
-					daLogger.Errorf("cannot get object with id %s, %v", objectInstance.ObjectId, err)
-					if err := sourceFP.Close(); err != nil {
-						daLogger.Errorf("cannot close source: %v", err)
-					}
-					continue
-				}
-				var status string
-				var message string
-				var errorCheck bool
-				if object.Checksum != checksums[checksum.DigestSHA512] {
-					daLogger.Errorf("checksum check failed for object %s, checksums are not matching", objectInstance.Path)
-					status = errorStatus
-					message = "checksum check failed for object, checksums are not matching" + objectInstance.Path
-					errorCheck = true
-				} else {
-					status = okStatus
-					errorCheck = false
-				}
-				objectInstance.Status = status
-				err = updateInstanceAndCreateCheck(ctx, CheckerHandlerServiceClient, objectInstance, errorCheck, message)
-				if err != nil {
-					daLogger.Errorf("cannot update instance or create instance check object for file %s, %v", objectInstance.Path, err)
-				}
-
-				if err := sourceFP.Close(); err != nil {
-					daLogger.Errorf("cannot close source: %v", err)
-				}
+	for _, objectInstance := range objectInstances.ObjectInstances {
+		checksumRetr, err := clientCheckerStorageHandler.GetObjectInstanceChecksum(context.Background(), objectInstance)
+		if err != nil {
+			logger.Error().Msgf("cannot get checksum for object instance with id %s, %v", objectInstance.Id, err)
+			objectInstance.Status = errorStatus
+			err = updateInstanceAndCreateCheck(context.Background(), clientCheckerHandler, objectInstance, true, fmt.Sprintf("cannot get checksum for object instance: %s", err))
+			if err != nil {
+				logger.Error().Msgf("cannot update instance or create instance check object for file %s, %v", objectInstance.Path, err)
 			}
+			err := checkAmountOfErrorsAndReact(context.Background(), clientCheckerHandler, objectInstance, logger)
+			if err != nil {
+				logger.Error().Msgf("cannot checkAmountOfErrorsAndReact for object instance with path %v", objectInstance.Path, err)
+			}
+			continue
 		}
 
-		func updateInstanceAndCreateCheck(ctx context.Context, checkerHandlerServiceClient pb.CheckerHandlerServiceClient, objectInstance *dlzamanagerproto.ObjectInstance, errorCheck bool, message string) error {
-			_, err := checkerHandlerServiceClient.UpdateObjectInstance(ctx, objectInstance)
+		object, err := clientCheckerHandler.GetObjectById(context.Background(), &dlzamanagerproto.Id{Id: objectInstance.ObjectId})
+		if err != nil {
+			logger.Error().Msgf("cannot get object with id %s, %v", objectInstance.ObjectId, err)
+			continue
+		}
+		var status string
+		var message string
+		var errorCheck bool
+		if object.Checksum != checksumRetr.Id {
+			logger.Error().Msgf("checksum check failed for object %s, checksums are not matching", objectInstance.Path)
+			status = errorStatus
+			message = "checksum check failed for object, checksums are not matching" + objectInstance.Path
+			errorCheck = true
+		} else {
+			status = okStatus
+			errorCheck = false
+		}
+		objectInstance.Status = status
+		err = updateInstanceAndCreateCheck(context.Background(), clientCheckerHandler, objectInstance, errorCheck, message)
+		if err != nil {
+			logger.Error().Msgf("cannot update instance or create instance check object for file %v", objectInstance.Path, err)
+		}
+		if errorCheck {
+			err := checkAmountOfErrorsAndReact(context.Background(), clientCheckerHandler, objectInstance, logger)
 			if err != nil {
-				return err
+				logger.Error().Msgf("cannot checkAmountOfErrorsAndReact for object instance with path %v", objectInstance.Path, err)
 			}
-			_, err = checkerHandlerServiceClient.CreateObjectInstanceCheck(ctx, &dlzamanagerproto.ObjectInstanceCheck{ObjectInstanceId: objectInstance.Id,
-				Error: errorCheck, Message: message})
-			if err != nil {
-				return err
-			}
-			return nil
+		}
+	}
 
-	*/
+}
+
+func updateInstanceAndCreateCheck(ctx context.Context, checkerHandlerServiceClient handlerClientProto.CheckerHandlerServiceClient, objectInstance *dlzamanagerproto.ObjectInstance, errorCheck bool, message string) error {
+	_, err := checkerHandlerServiceClient.UpdateObjectInstance(ctx, objectInstance)
+	if err != nil {
+		return err
+	}
+	_, err = checkerHandlerServiceClient.CreateObjectInstanceCheck(ctx, &dlzamanagerproto.ObjectInstanceCheck{ObjectInstanceId: objectInstance.Id,
+		Error: errorCheck, Message: message})
+	if err != nil {
+		return err
+	}
+	return nil
+
+}
+
+func checkAmountOfErrorsAndReact(ctx context.Context, checkerHandlerServiceClient handlerClientProto.CheckerHandlerServiceClient, objectInstance *dlzamanagerproto.ObjectInstance, logger zLogger.ZLogger) error {
+	objectInstanceChecks, err := checkerHandlerServiceClient.GetObjectInstanceChecksByObjectInstanceId(ctx, &dlzamanagerproto.Id{Id: objectInstance.Id})
+	if err != nil {
+		logger.Error().Msgf("cannot GetObjectInstanceChecksByObjectInstanceId for object instance with path %v", objectInstance.Path, err)
+		return errors.Wrapf(err, "cannot GetObjectInstanceChecksByObjectInstanceId for object instance with path %v", objectInstance.Path)
+	}
+	if len(objectInstanceChecks.ObjectInstanceChecks) >= 3 {
+
+	}
+
+	return nil
 }
