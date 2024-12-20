@@ -8,12 +8,14 @@ import (
 	"fmt"
 	configutil "github.com/je4/utils/v2/pkg/config"
 	"github.com/je4/utils/v2/pkg/zLogger"
+	"github.com/ocfl-archive/dlza-manager-checker/service"
 	handlerClientProto "github.com/ocfl-archive/dlza-manager-handler/handlerproto"
 	storageHandlerClientProto "github.com/ocfl-archive/dlza-manager-storage-handler/storagehandlerproto"
 	"github.com/ocfl-archive/dlza-manager/dlzamanagerproto"
 	ublogger "gitlab.switch.ch/ub-unibas/go-ublogger/v2"
 	"go.ub.unibas.ch/cloud/certloader/v2/pkg/loader"
 	"go.ub.unibas.ch/cloud/miniresolver/v2/pkg/resolver"
+	"golang.org/x/exp/maps"
 	"io"
 	"io/fs"
 	"log"
@@ -27,8 +29,10 @@ import (
 var configParam = flag.String("config", "", "config file in toml format")
 
 const (
-	errorStatus = "error"
-	okStatus    = "ok"
+	errorStatus  = "error"
+	okStatus     = "ok"
+	deleteStatus = "to delete"
+	notAvailable = "not available"
 )
 
 func main() {
@@ -143,26 +147,26 @@ func main() {
 	}
 
 	for _, objectInstance := range objectInstances.ObjectInstances {
+		object, err := clientCheckerHandler.GetObjectById(context.Background(), &dlzamanagerproto.Id{Id: objectInstance.ObjectId})
+		if err != nil {
+			logger.Error().Msgf("cannot get object with id %s, %v", objectInstance.ObjectId, err)
+			continue
+		}
 		checksumRetr, err := clientCheckerStorageHandler.GetObjectInstanceChecksum(context.Background(), objectInstance)
 		if err != nil {
 			logger.Error().Msgf("cannot get checksum for object instance with id %s, %v", objectInstance.Id, err)
-			objectInstance.Status = errorStatus
+			objectInstance.Status = notAvailable
 			err = updateInstanceAndCreateCheck(context.Background(), clientCheckerHandler, objectInstance, true, fmt.Sprintf("cannot get checksum for object instance: %s", err))
 			if err != nil {
 				logger.Error().Msgf("cannot update instance or create instance check object for file %s, %v", objectInstance.Path, err)
 			}
-			err := checkAmountOfErrorsAndReact(context.Background(), clientCheckerHandler, objectInstance, logger)
+			err := checkAmountOfErrorsAndReact(context.Background(), clientCheckerHandler, clientCheckerStorageHandler, objectInstance, object, logger)
 			if err != nil {
 				logger.Error().Msgf("cannot checkAmountOfErrorsAndReact for object instance with path %v", objectInstance.Path, err)
 			}
 			continue
 		}
 
-		object, err := clientCheckerHandler.GetObjectById(context.Background(), &dlzamanagerproto.Id{Id: objectInstance.ObjectId})
-		if err != nil {
-			logger.Error().Msgf("cannot get object with id %s, %v", objectInstance.ObjectId, err)
-			continue
-		}
 		var status string
 		var message string
 		var errorCheck bool
@@ -181,7 +185,7 @@ func main() {
 			logger.Error().Msgf("cannot update instance or create instance check object for file %v", objectInstance.Path, err)
 		}
 		if errorCheck {
-			err := checkAmountOfErrorsAndReact(context.Background(), clientCheckerHandler, objectInstance, logger)
+			err := checkAmountOfErrorsAndReact(context.Background(), clientCheckerHandler, clientCheckerStorageHandler, objectInstance, object, logger)
 			if err != nil {
 				logger.Error().Msgf("cannot checkAmountOfErrorsAndReact for object instance with path %v", objectInstance.Path, err)
 			}
@@ -204,15 +208,78 @@ func updateInstanceAndCreateCheck(ctx context.Context, checkerHandlerServiceClie
 
 }
 
-func checkAmountOfErrorsAndReact(ctx context.Context, checkerHandlerServiceClient handlerClientProto.CheckerHandlerServiceClient, objectInstance *dlzamanagerproto.ObjectInstance, logger zLogger.ZLogger) error {
+func checkAmountOfErrorsAndReact(ctx context.Context, checkerHandlerServiceClient handlerClientProto.CheckerHandlerServiceClient, checkerStorageHandlerServiceClient storageHandlerClientProto.CheckerStorageHandlerServiceClient,
+	objectInstance *dlzamanagerproto.ObjectInstance, object *dlzamanagerproto.Object, logger zLogger.ZLogger) error {
 	objectInstanceChecks, err := checkerHandlerServiceClient.GetObjectInstanceChecksByObjectInstanceId(ctx, &dlzamanagerproto.Id{Id: objectInstance.Id})
 	if err != nil {
 		logger.Error().Msgf("cannot GetObjectInstanceChecksByObjectInstanceId for object instance with path %v", objectInstance.Path, err)
 		return errors.Wrapf(err, "cannot GetObjectInstanceChecksByObjectInstanceId for object instance with path %v", objectInstance.Path)
 	}
-	if len(objectInstanceChecks.ObjectInstanceChecks) >= 3 {
+	if len(objectInstanceChecks.ObjectInstanceChecks) == 3 {
+		for _, objectInstanceCheck := range objectInstanceChecks.ObjectInstanceChecks {
+			if !objectInstanceCheck.Error {
+				return nil
+			}
+		}
+		relevantStorageLocations, err := checkerHandlerServiceClient.GetRelevantStorageLocationsByObjectId(ctx, &dlzamanagerproto.Id{Id: objectInstance.ObjectId})
+		if err != nil {
+			logger.Error().Msgf("cannot GetRelevantStorageLocationsByObjectId for object ID %v", objectInstance.ObjectId, err)
+			return errors.Wrapf(err, "cannot GetRelevantStorageLocationsByObjectId for object ID %v", objectInstance.ObjectId)
+		}
+		objectInstances, err := checkerHandlerServiceClient.GetObjectsInstancesByObjectId(ctx, &dlzamanagerproto.Id{Id: objectInstance.ObjectId})
+		if err != nil {
+			logger.Error().Msgf("cannot GetObjectInstanceById for object instance with path %v", objectInstance.Path, err)
+			return errors.Wrapf(err, "cannot GetObjectInstanceById for object instance with path %v", objectInstance.Path)
+		}
+		objectInstancesChecked := make([]*dlzamanagerproto.ObjectInstance, 0)
+		storageLocationsAndObjectInstancesCurrent := make(map[*dlzamanagerproto.ObjectInstance]*dlzamanagerproto.StorageLocation)
+		var storageLocationWithBrokenObjectInstance *dlzamanagerproto.StorageLocation
+		var objectInstanceToCopyFrom *dlzamanagerproto.ObjectInstance
+		for index, objectInstanceIter := range objectInstances.ObjectInstances {
+			storageLocation, err := checkerHandlerServiceClient.GetStorageLocationByObjectInstanceId(ctx, &dlzamanagerproto.Id{Id: objectInstanceIter.Id})
+			if err != nil {
+				logger.Error().Msgf("cannot GetStorageLocationByObjectInstanceId for object instance with path %v", objectInstanceIter.Path, err)
+				return errors.Wrapf(err, "cannot GetStorageLocationByObjectInstanceId for object instance with path %v", objectInstanceIter.Path)
+			}
+			if objectInstanceIter.Id != objectInstance.Id {
+				storageLocationsAndObjectInstancesCurrent[objectInstanceIter] = storageLocation
+			} else {
+				storageLocationWithBrokenObjectInstance = storageLocation
+			}
+			if objectInstanceIter.Status != errorStatus && objectInstanceIter.Status != notAvailable &&
+				objectInstanceIter.Status != deleteStatus && objectInstanceIter.Id != objectInstance.Id {
+				objectInstancesChecked = append(objectInstancesChecked, objectInstanceIter)
+				if storageLocation.FillFirst {
+					objectInstanceToCopyFrom = objectInstanceIter
+				}
+				if index == len(objectInstancesChecked)-1 && objectInstanceToCopyFrom == nil {
+					objectInstanceToCopyFrom = objectInstances.ObjectInstances[0]
+				}
+			}
+		}
+		if len(objectInstancesChecked) == 0 {
+			logger.Error().Msgf("There is no any object instance to copy from for object with ID %v", object.Id, err)
+			return errors.Wrapf(err, "There is no any object instance to copy from for object with ID %v", object.Id)
+		}
+		storageLocationsToCopyTo := service.GetStorageLocationsToCopyTo(relevantStorageLocations, maps.Values(storageLocationsAndObjectInstancesCurrent))
+		storageLocationsToDeleteFromWithObjectInstances := service.GetStorageLocationsToDeleteFrom(relevantStorageLocations, storageLocationsAndObjectInstancesCurrent)
+		storageLocationsToDeleteFromWithObjectInstances[objectInstance] = storageLocationWithBrokenObjectInstance
 
+		for _, storageLocationToCopyTo := range storageLocationsToCopyTo {
+			_, err = checkerStorageHandlerServiceClient.CopyArchiveTo(ctx, &dlzamanagerproto.CopyFromTo{LocationCopyTo: storageLocationToCopyTo, ObjectInstance: objectInstanceToCopyFrom})
+			if err != nil {
+				logger.Error().Msgf("cannot CopyArchiveTo for object instance with path %v to storage location %v", objectInstance.Path, storageLocationToCopyTo.Alias, err)
+				return errors.Wrapf(err, "cannot CopyArchiveTo for object instance with path %v to storage location %v", objectInstance.Path, storageLocationToCopyTo.Alias)
+			}
+		}
+		for ObjectInstanceToDelete, _ := range storageLocationsToDeleteFromWithObjectInstances {
+			ObjectInstanceToDelete.Status = deleteStatus
+			_, err := checkerHandlerServiceClient.UpdateObjectInstance(ctx, ObjectInstanceToDelete)
+			if err != nil {
+				logger.Error().Msgf("cannot UpdateObjectInstance with ID", ObjectInstanceToDelete.Id, err)
+				return errors.Wrapf(err, "cannot UpdateObjectInstance with ID", ObjectInstanceToDelete.Id)
+			}
+		}
 	}
-
 	return nil
 }
