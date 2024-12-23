@@ -147,51 +147,52 @@ func main() {
 	}
 
 	for _, objectInstance := range objectInstances.ObjectInstances {
-		object, err := clientCheckerHandler.GetObjectById(context.Background(), &dlzamanagerproto.Id{Id: objectInstance.ObjectId})
-		if err != nil {
-			logger.Error().Msgf("cannot get object with id %s, %v", objectInstance.ObjectId, err)
-			continue
-		}
-		checksumRetr, err := clientCheckerStorageHandler.GetObjectInstanceChecksum(context.Background(), objectInstance)
-		if err != nil {
-			logger.Error().Msgf("cannot get checksum for object instance with id %s, %v", objectInstance.Id, err)
-			objectInstance.Status = notAvailable
-			err = updateInstanceAndCreateCheck(context.Background(), clientCheckerHandler, objectInstance, true, fmt.Sprintf("cannot get checksum for object instance: %s", err))
+		if objectInstance.Status != deleteStatus {
+			object, err := clientCheckerHandler.GetObjectById(context.Background(), &dlzamanagerproto.Id{Id: objectInstance.ObjectId})
 			if err != nil {
-				logger.Error().Msgf("cannot update instance or create instance check object for file %s, %v", objectInstance.Path, err)
+				logger.Error().Msgf("cannot get object with id %s, %v", objectInstance.ObjectId, err)
+				continue
 			}
-			err := checkAmountOfErrorsAndReact(context.Background(), clientCheckerHandler, clientCheckerStorageHandler, objectInstance, object, logger)
+			checksumRetr, err := clientCheckerStorageHandler.GetObjectInstanceChecksum(context.Background(), objectInstance)
 			if err != nil {
-				logger.Error().Msgf("cannot checkAmountOfErrorsAndReact for object instance with path %v", objectInstance.Path, err)
+				logger.Error().Msgf("cannot get checksum for object instance with id %s, %v", objectInstance.Id, err)
+				objectInstance.Status = notAvailable
+				err = updateInstanceAndCreateCheck(context.Background(), clientCheckerHandler, objectInstance, true, fmt.Sprintf("cannot get checksum for object instance: %s", err))
+				if err != nil {
+					logger.Error().Msgf("cannot update instance or create instance check object for file %s, %v", objectInstance.Path, err)
+				}
+				err := checkAmountOfErrorsAndReact(context.Background(), clientCheckerHandler, clientCheckerStorageHandler, objectInstance, object, logger)
+				if err != nil {
+					logger.Error().Msgf("cannot checkAmountOfErrorsAndReact for object instance with path %v", objectInstance.Path, err)
+				}
+				continue
 			}
-			continue
-		}
 
-		var status string
-		var message string
-		var errorCheck bool
-		if object.Checksum != checksumRetr.Id {
-			logger.Error().Msgf("checksum check failed for object %s, checksums are not matching", objectInstance.Path)
-			status = errorStatus
-			message = "checksum check failed for object, checksums are not matching" + objectInstance.Path
-			errorCheck = true
-		} else {
-			status = okStatus
-			errorCheck = false
-		}
-		objectInstance.Status = status
-		err = updateInstanceAndCreateCheck(context.Background(), clientCheckerHandler, objectInstance, errorCheck, message)
-		if err != nil {
-			logger.Error().Msgf("cannot update instance or create instance check object for file %v", objectInstance.Path, err)
-		}
-		if errorCheck {
-			err := checkAmountOfErrorsAndReact(context.Background(), clientCheckerHandler, clientCheckerStorageHandler, objectInstance, object, logger)
+			var status string
+			var message string
+			var errorCheck bool
+			if object.Checksum != checksumRetr.Id {
+				logger.Error().Msgf("checksum check failed for object %s, checksums are not matching", objectInstance.Path)
+				status = errorStatus
+				message = "checksum check failed for object, checksums are not matching" + objectInstance.Path
+				errorCheck = true
+			} else {
+				status = okStatus
+				errorCheck = false
+			}
+			objectInstance.Status = status
+			err = updateInstanceAndCreateCheck(context.Background(), clientCheckerHandler, objectInstance, errorCheck, message)
 			if err != nil {
-				logger.Error().Msgf("cannot checkAmountOfErrorsAndReact for object instance with path %v", objectInstance.Path, err)
+				logger.Error().Msgf("cannot update instance or create instance check object for file %v", objectInstance.Path, err)
+			}
+			if errorCheck {
+				err := checkAmountOfErrorsAndReact(context.Background(), clientCheckerHandler, clientCheckerStorageHandler, objectInstance, object, logger)
+				if err != nil {
+					logger.Error().Msgf("cannot checkAmountOfErrorsAndReact for object instance with path %v", objectInstance.Path, err)
+				}
 			}
 		}
 	}
-
 }
 
 func updateInstanceAndCreateCheck(ctx context.Context, checkerHandlerServiceClient handlerClientProto.CheckerHandlerServiceClient, objectInstance *dlzamanagerproto.ObjectInstance, errorCheck bool, message string) error {
