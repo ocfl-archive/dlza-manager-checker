@@ -146,6 +146,15 @@ func main() {
 		logger.Error().Msgf("cannot get all object instances: %v", err)
 	}
 
+	var objectInst *dlzamanagerproto.ObjectInstance
+	for _, objectInstance := range objectInstances.ObjectInstances {
+		if objectInstance.Id == "26a87078-9fb7-4262-abe7-1e348cbbddec" {
+			objectInst = objectInstance
+		}
+	}
+
+	objectInstances.ObjectInstances = []*dlzamanagerproto.ObjectInstance{objectInst}
+
 	for _, objectInstance := range objectInstances.ObjectInstances {
 		if objectInstance.Status != deleteStatus {
 			object, err := clientCheckerHandler.GetObjectById(context.Background(), &dlzamanagerproto.Id{Id: objectInstance.ObjectId})
@@ -242,7 +251,7 @@ func checkAmountOfErrorsAndReact(ctx context.Context, checkerHandlerServiceClien
 				logger.Error().Msgf("cannot GetStorageLocationByObjectInstanceId for object instance with path %v", objectInstanceIter.Path, err)
 				return errors.Wrapf(err, "cannot GetStorageLocationByObjectInstanceId for object instance with path %v", objectInstanceIter.Path)
 			}
-			if objectInstanceIter.Id != objectInstance.Id {
+			if (objectInstanceIter.Id != objectInstance.Id) && objectInstanceIter.Status != deleteStatus {
 				storageLocationsAndObjectInstancesCurrent[objectInstanceIter] = storageLocation
 			} else {
 				storageLocationWithBrokenObjectInstance = storageLocation
@@ -273,12 +282,12 @@ func checkAmountOfErrorsAndReact(ctx context.Context, checkerHandlerServiceClien
 				return errors.Wrapf(err, "cannot CopyArchiveTo for object instance with path %v to storage location %v", objectInstance.Path, storageLocationToCopyTo.Alias)
 			}
 		}
-		for ObjectInstanceToDelete, _ := range storageLocationsToDeleteFromWithObjectInstances {
-			ObjectInstanceToDelete.Status = deleteStatus
-			_, err := checkerHandlerServiceClient.UpdateObjectInstance(ctx, ObjectInstanceToDelete)
+		for objectInstanceToDelete, _ := range storageLocationsToDeleteFromWithObjectInstances {
+			objectInstanceToDelete.Status = deleteStatus
+			_, err := checkerHandlerServiceClient.UpdateObjectInstance(ctx, objectInstanceToDelete)
 			if err != nil {
-				logger.Error().Msgf("cannot UpdateObjectInstance with ID", ObjectInstanceToDelete.Id, err)
-				return errors.Wrapf(err, "cannot UpdateObjectInstance with ID", ObjectInstanceToDelete.Id)
+				logger.Error().Msgf("cannot UpdateObjectInstance with ID", objectInstanceToDelete.Id, err)
+				return errors.Wrapf(err, "cannot UpdateObjectInstance with ID", objectInstanceToDelete.Id)
 			}
 		}
 	}
