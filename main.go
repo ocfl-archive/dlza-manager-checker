@@ -145,15 +145,16 @@ func main() {
 	if err != nil {
 		logger.Error().Msgf("cannot get all object instances: %v", err)
 	}
-
-	var objectInst *dlzamanagerproto.ObjectInstance
-	for _, objectInstance := range objectInstances.ObjectInstances {
-		if objectInstance.Id == "26a87078-9fb7-4262-abe7-1e348cbbddec" {
-			objectInst = objectInstance
+	/*
+		objectInstancesTest := make([]*dlzamanagerproto.ObjectInstance, 0)
+		for _, objectInstance := range objectInstances.ObjectInstances {
+			if objectInstance.Id == "8001c8ce-1ff8-4854-bd7c-e74ee96511d3" {
+				objectInstancesTest = append(objectInstancesTest, objectInstance)
+			}
 		}
-	}
+		objectInstances.ObjectInstances = objectInstancesTest
 
-	objectInstances.ObjectInstances = []*dlzamanagerproto.ObjectInstance{objectInst}
+	*/
 
 	for _, objectInstance := range objectInstances.ObjectInstances {
 		if objectInstance.Status != deleteStatus {
@@ -201,6 +202,7 @@ func main() {
 				}
 			}
 		}
+		//logger.Info().Msgf("%d object instances out of %d checked", index, len(objectInstances.ObjectInstances))
 	}
 }
 
@@ -255,15 +257,15 @@ func checkAmountOfErrorsAndReact(ctx context.Context, checkerHandlerServiceClien
 				storageLocationsAndObjectInstancesCurrent[objectInstanceIter] = storageLocation
 			} else {
 				storageLocationWithBrokenObjectInstance = storageLocation
+				continue
 			}
 			if objectInstanceIter.Status != errorStatus && objectInstanceIter.Status != notAvailable &&
 				objectInstanceIter.Status != deleteStatus && objectInstanceIter.Id != objectInstance.Id {
 				objectInstancesChecked = append(objectInstancesChecked, objectInstanceIter)
 				if storageLocation.FillFirst {
 					objectInstanceToCopyFrom = objectInstanceIter
-				}
-				if index == len(objectInstancesChecked)-1 && objectInstanceToCopyFrom == nil {
-					objectInstanceToCopyFrom = objectInstances.ObjectInstances[0]
+				} else if index == len(objectInstances.ObjectInstances)-1 && objectInstanceToCopyFrom == nil && len(objectInstancesChecked) != 0 {
+					objectInstanceToCopyFrom = objectInstancesChecked[0]
 				}
 			}
 		}
