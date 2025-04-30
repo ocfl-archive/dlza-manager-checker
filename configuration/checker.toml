@@ -14,6 +14,7 @@ cyclelength = 600
 dayswithoutcheck = 5
 workerwaitingtime = 1
 timetowaitworker = 5
+amountofworkers = 1
 
 ActionTemplateTimeout = "10s"
 
