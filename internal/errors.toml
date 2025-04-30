@@ -1,0 +1,46 @@
+
+
+[[errors]]
+id = "ErrorDataBaseRead"
+type = "DATABASE"
+weight = 70
+message = ""
+
+
+[[errors]]
+id = "ErrorDataBaseWrite"
+type = "DATABASE"
+weight = 80
+message = ""
+
+[[errors]]
+id = "ErrorVfsOpen"
+type = "VFS"
+weight = 80
+message = ""
+
+[[errors]]
+id = "ErrorVfsClosingSource"
+type = "VFS"
+weight = 50
+message = ""
+
+[[errors]]
+id = "ErrorFileSystemCreateTarget"
+type = "FS"
+weight = 80
+message = ""
+
+[[errors]]
+id = "ErrorFileSystemCloseTarget"
+type = "FS"
+weight = 50
+message = ""
+
+[[errors]]
+id = "ErrorIOCopy"
+type = "IO"
+weight = 80
+message = ""
+
+

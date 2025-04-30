@@ -1,4 +1,4 @@
-FROM golang:1.23.3 as builder
+FROM golang:1.24.2 as builder
 
 WORKDIR /dlza-manager-checker
 

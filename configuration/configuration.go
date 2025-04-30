@@ -12,8 +12,11 @@ import (
 )
 
 type DispatcherConfig struct {
+	AmountOfWorkers         int                   `toml:"amountofworkers"`
+	ErrorConfig             string                `toml:"errorconfig"`
 	LocalAddr               string                `toml:"localaddr"`
 	CycleLength             int                   `toml:"cyclelength"`
+	DaysWithoutCheck        int                   `toml:"dayswithoutcheck"`
 	Domain                  string                `toml:"domain"`
 	ExternalAddr            string                `toml:"externaladdr"`
 	IIIF                    string                `toml:"iiif"`
@@ -34,6 +37,8 @@ type DispatcherConfig struct {
 	CollectionCacheTimeout  config.Duration       `toml:"collectioncachetimeout"`
 	CollectionCacheSize     int                   `toml:"collectioncachesize"`
 	ItemCacheSize           int                   `toml:"itemcachesize"`
+	WorkerWaitingTime       int                   `toml:"workerwaitingtime"`
+	TimeToWaitWorker        int                   `toml:"timetowaitworker"`
 }
 
 func LoadDispatcherConfig(fSys fs.FS, fp string, conf *DispatcherConfig) error {
