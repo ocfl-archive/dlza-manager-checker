@@ -249,6 +249,7 @@ func checkObjectsAndReact(ctx context.Context, checkerHandlerServiceClient handl
 					logger.Error().Msgf("cannot checkAmountOfErrorsAndReact for object instance with path %s", objectInstance.Path, err)
 					continue
 				}
+				continue
 			}
 			if obj.Checksum != checksum.Id {
 				objectInstance.Status = errorStatus
@@ -257,7 +258,13 @@ func checkObjectsAndReact(ctx context.Context, checkerHandlerServiceClient handl
 					logger.Error().Msgf("cannot UpdateObjectInstance with ID %s for object with false checksum with ID %s", objectInstance.Id, objectInstance.ObjectId, err)
 					continue
 				}
+				continue
 			}
+			err = updateInstanceAndCreateCheck(context.Background(), checkerHandlerServiceClient, objectInstance, false, "")
+			if err != nil {
+				logger.Error().Msgf("cannot update instance or create instance check object for file %v", objectInstance.Path, err)
+			}
+
 		}
 	}
 
@@ -285,6 +292,20 @@ func checkAmountOfErrorsAndReact(ctx context.Context, checkerHandlerServiceClien
 		}
 	}
 	return nil
+}
+
+func updateInstanceAndCreateCheck(ctx context.Context, checkerHandlerServiceClient handlerClientProto.CheckerHandlerServiceClient, objectInstance *dlzamanagerproto.ObjectInstance, error bool, message string) error {
+	_, err := checkerHandlerServiceClient.UpdateObjectInstance(ctx, objectInstance)
+	if err != nil {
+		return err
+	}
+	_, err = checkerHandlerServiceClient.CreateObjectInstanceCheck(ctx, &dlzamanagerproto.ObjectInstanceCheck{ObjectInstanceId: objectInstance.Id,
+		Error: error, Message: message})
+	if err != nil {
+		return err
+	}
+	return nil
+
 }
 
 func configErrorFactory() {
