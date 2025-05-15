@@ -17,6 +17,7 @@ type DispatcherConfig struct {
 	LocalAddr               string                `toml:"localaddr"`
 	CycleLength             int                   `toml:"cyclelength"`
 	DaysWithoutCheck        int                   `toml:"dayswithoutcheck"`
+	DaysToWaitAvailability  int                   `toml:"daystowaitavailability"`
 	Domain                  string                `toml:"domain"`
 	ExternalAddr            string                `toml:"externaladdr"`
 	IIIF                    string                `toml:"iiif"`

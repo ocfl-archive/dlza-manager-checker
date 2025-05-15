@@ -1,8 +1,0 @@
-
-handler:
-  host : localhost
-  port : 9082
-checker:
-  host : localhost
-  port : 
-#modify if needed the hosts/ports
