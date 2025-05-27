@@ -10,12 +10,12 @@ jwtalg = ["HS256","HS384","HS512"]
 iiif = "http://localhost:8182/iiif"
 iiifprefix = "vfs://testcache/ub-media-testbucket-02/"
 iiifbaseaction = "convert/formatptif/tile512x512/compressjpeg/quality75"
-cyclelength = 6000
-dayswithoutcheck = 30
-daystowaitavailability = 10
+cyclelength = 600
+dayswithoutcheck = 10
+minutestowaitavailability = 480
 workerwaitingtime = 1
 timetowaitworker = 5
-amountofworkers = 1
+amountofworkers = 10
 
 ActionTemplateTimeout = "10s"
 

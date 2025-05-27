@@ -12,34 +12,34 @@ import (
 )
 
 type DispatcherConfig struct {
-	AmountOfWorkers         int                   `toml:"amountofworkers"`
-	ErrorConfig             string                `toml:"errorconfig"`
-	LocalAddr               string                `toml:"localaddr"`
-	CycleLength             int                   `toml:"cyclelength"`
-	DaysWithoutCheck        int                   `toml:"dayswithoutcheck"`
-	DaysToWaitAvailability  int                   `toml:"daystowaitavailability"`
-	Domain                  string                `toml:"domain"`
-	ExternalAddr            string                `toml:"externaladdr"`
-	IIIF                    string                `toml:"iiif"`
-	IIIFPrefix              string                `toml:"iiifprefix"`
-	IIIFBaseAction          string                `toml:"iiifbaseaction"`
-	JWTKey                  string                `toml:"jwtkey"`
-	JWTAlg                  []string              `toml:"jwtalg"`
-	ResolverAddr            string                `toml:"resolveraddr"`
-	ResolverTimeout         config.Duration       `toml:"resolvertimeout"`
-	ResolverNotFoundTimeout config.Duration       `toml:"resolvernotfoundtimeout"`
-	ClientTLS               *loaderConfig.Config  `toml:"client"`
-	LogFile                 string                `toml:"logfile"`
-	LogLevel                string                `toml:"loglevel"`
-	GRPCClient              map[string]string     `toml:"grpcclient"`
-	VFS                     map[string]*vfsrw.VFS `toml:"vfs"`
-	Log                     stashconfig.Config    `toml:"log"`
-	ActionTemplateTimeout   config.Duration       `toml:"actiontemplatetimeout"`
-	CollectionCacheTimeout  config.Duration       `toml:"collectioncachetimeout"`
-	CollectionCacheSize     int                   `toml:"collectioncachesize"`
-	ItemCacheSize           int                   `toml:"itemcachesize"`
-	WorkerWaitingTime       int                   `toml:"workerwaitingtime"`
-	TimeToWaitWorker        int                   `toml:"timetowaitworker"`
+	AmountOfWorkers           int                   `toml:"amountofworkers"`
+	ErrorConfig               string                `toml:"errorconfig"`
+	LocalAddr                 string                `toml:"localaddr"`
+	CycleLength               int                   `toml:"cyclelength"`
+	DaysWithoutCheck          int                   `toml:"dayswithoutcheck"`
+	MinutesToWaitAvailability int                   `toml:"minutestowaitavailability"`
+	Domain                    string                `toml:"domain"`
+	ExternalAddr              string                `toml:"externaladdr"`
+	IIIF                      string                `toml:"iiif"`
+	IIIFPrefix                string                `toml:"iiifprefix"`
+	IIIFBaseAction            string                `toml:"iiifbaseaction"`
+	JWTKey                    string                `toml:"jwtkey"`
+	JWTAlg                    []string              `toml:"jwtalg"`
+	ResolverAddr              string                `toml:"resolveraddr"`
+	ResolverTimeout           config.Duration       `toml:"resolvertimeout"`
+	ResolverNotFoundTimeout   config.Duration       `toml:"resolvernotfoundtimeout"`
+	ClientTLS                 *loaderConfig.Config  `toml:"client"`
+	LogFile                   string                `toml:"logfile"`
+	LogLevel                  string                `toml:"loglevel"`
+	GRPCClient                map[string]string     `toml:"grpcclient"`
+	VFS                       map[string]*vfsrw.VFS `toml:"vfs"`
+	Log                       stashconfig.Config    `toml:"log"`
+	ActionTemplateTimeout     config.Duration       `toml:"actiontemplatetimeout"`
+	CollectionCacheTimeout    config.Duration       `toml:"collectioncachetimeout"`
+	CollectionCacheSize       int                   `toml:"collectioncachesize"`
+	ItemCacheSize             int                   `toml:"itemcachesize"`
+	WorkerWaitingTime         int                   `toml:"workerwaitingtime"`
+	TimeToWaitWorker          int                   `toml:"timetowaitworker"`
 }
 
 func LoadDispatcherConfig(fSys fs.FS, fp string, conf *DispatcherConfig) error {

@@ -196,7 +196,7 @@ func main() {
 		defer wg.Done()
 		for {
 			for {
-				object, err := clientCheckerHandler.GetObjectExceptListOlderThanWithChecks(context.Background(), &dlzamanagerproto.IdsWithSQLInterval{Ids: maps.Keys(objectCash), Interval: fmt.Sprintf("'%d' minute", conf.DaysWithoutCheck), AvailabilityInterval: fmt.Sprintf("'%d' minute", conf.DaysToWaitAvailability)})
+				object, err := clientCheckerHandler.GetObjectExceptListOlderThanWithChecks(context.Background(), &dlzamanagerproto.IdsWithSQLInterval{Ids: maps.Keys(objectCash), Interval: fmt.Sprintf("'%d' day", conf.DaysWithoutCheck), AvailabilityInterval: fmt.Sprintf("'%d' minute", conf.MinutesToWaitAvailability)})
 				if err != nil {
 					logger.Error().Msgf("cannot get GetObjectExceptListOlderThanWithChecks. err: %v", err)
 				}
@@ -218,6 +218,7 @@ func main() {
 			case <-end:
 				return
 			case <-time.After(time.Duration(conf.CycleLength) * time.Second):
+				logger.Info().Msgf("All objects were checked with amount of workers =  %d", conf.AmountOfWorkers)
 			}
 		}
 	}()
@@ -266,6 +267,7 @@ func checkObjectsAndReact(checkerHandlerServiceClient handlerClientProto.Checker
 				}
 				continue
 			}
+			objectInstance.Status = okStatus
 			err = updateInstanceAndCreateCheck(checkerHandlerServiceClient, objectInstance, false, "", sha512Status)
 			if err != nil {
 				logger.Error().Msgf("cannot update instance or create instance check object for file %v, err: %v", objectInstance.Path, err)
