@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -244,6 +245,9 @@ func checkObjectsAndReact(checkerHandlerServiceClient handlerClientProto.Checker
 		if objectInstance.Status == newStatus || objectInstance.Status == okStatus {
 			checksum, err := checkerStorageHandlerServiceClient.GetObjectInstanceChecksum(context.Background(), objectInstance)
 			if err != nil {
+				if strings.Contains(err.Error(), "certificate") || strings.Contains(err.Error(), "authentication") || strings.Contains(err.Error(), "handshake failed") {
+					logger.Fatal().Err(err).Msgf("cannot reach storage handler %v", err)
+				}
 				logger.Error().Msgf("cannot get GetObjectInstanceChecksum for object instance with id: %s. err: %v", objectInstance.Id, err)
 				_, err = checkerHandlerServiceClient.CreateObjectInstanceCheck(context.Background(), &dlzamanagerproto.ObjectInstanceCheck{ObjectInstanceId: objectInstance.Id,
 					Error: true, Message: fmt.Sprintf("cannot get checksum for object instance: %s", err), CheckType: existsStatus})
