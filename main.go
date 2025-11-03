@@ -3,9 +3,19 @@ package main
 import (
 	"context"
 	"crypto/tls"
-	"emperror.dev/errors"
 	"flag"
 	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+
+	"emperror.dev/errors"
 	configutil "github.com/je4/utils/v2/pkg/config"
 	"github.com/je4/utils/v2/pkg/zLogger"
 	"github.com/ocfl-archive/dlza-manager-checker/internal"
@@ -18,15 +28,6 @@ import (
 	"go.ub.unibas.ch/cloud/certloader/v2/pkg/loader"
 	"go.ub.unibas.ch/cloud/miniresolver/v2/pkg/resolver"
 	"golang.org/x/exp/maps"
-	"io"
-	"io/fs"
-	"os"
-	"os/signal"
-	"path/filepath"
-	"strings"
-	"sync"
-	"syscall"
-	"time"
 
 	"github.com/ocfl-archive/dlza-manager-checker/configuration"
 )
@@ -45,7 +46,36 @@ const (
 	sha512Status = "sha512"
 )
 
-var objectCash map[string]*dlzamanagerproto.Object
+type Cash struct {
+	mu         sync.Mutex
+	ObjectCash map[string]*dlzamanagerproto.Object
+}
+
+func (c *Cash) Add(obj *dlzamanagerproto.Object) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.ObjectCash[obj.Id] = obj
+}
+
+func (c *Cash) Len() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.ObjectCash)
+}
+
+func (c *Cash) GetKeys() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return maps.Keys(c.ObjectCash)
+}
+
+func (c *Cash) Delete(id string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.ObjectCash, id)
+}
+
+var cash *Cash
 
 const errorTopic string = "dlza-manager-checker"
 
@@ -70,12 +100,12 @@ func worker(id int, in <-chan *dlzamanagerproto.Object, checkerHandlerServiceCli
 			err := checkObjectsAndReact(checkerHandlerServiceClient, checkerStorageHandlerServiceClient, obj, logger)
 			if err != nil {
 				logger.Error().Msgf("cannot checkObjectInstancesDistributionAndReact for object with ID %s, err: %v", obj.Id, err)
-				delete(objectCash, obj.Id)
+				cash.Delete(obj.Id)
 				continue
 			}
 			logger.Info().Msgf("Worker ID: %d finished to process object with ID: %s", id, obj.Id)
-			delete(objectCash, obj.Id)
-			logger.Debug().Msgf("Worker ID: %d cleared cash. Cash length: %d", id, len(objectCash))
+			cash.Delete(obj.Id)
+			logger.Debug().Msgf("Worker ID: %d cleared cash. Cash length: %d", id, cash.Len())
 		case <-time.After(time.Duration(workerWaitingTime) * time.Second):
 			//logger.Debug().Msgf("Timeout: no value received in %d second. Worker ID: %d", workerWaitingTime, id)
 		}
@@ -184,7 +214,7 @@ func main() {
 		logger.Panic().Msgf("cannot create clientCheckerStorageHandler grpc client: %s", err)
 	}
 	workerWaitingTime = conf.WorkerWaitingTime
-	objectCash = make(map[string]*dlzamanagerproto.Object)
+	cash = &Cash{ObjectCash: make(map[string]*dlzamanagerproto.Object)}
 	jobChan := make(chan *dlzamanagerproto.Object)
 	wg := &sync.WaitGroup{}
 	for i := 0; i < conf.AmountOfWorkers; i++ {
@@ -197,19 +227,19 @@ func main() {
 		defer wg.Done()
 		for {
 			for {
-				object, err := clientCheckerHandler.GetObjectExceptListOlderThanWithChecks(context.Background(), &dlzamanagerproto.IdsWithSQLInterval{Ids: maps.Keys(objectCash), Interval: fmt.Sprintf("'%d' day", conf.DaysWithoutCheck), AvailabilityInterval: fmt.Sprintf("'%d' minute", conf.MinutesToWaitAvailability)})
+				object, err := clientCheckerHandler.GetObjectExceptListOlderThanWithChecks(context.Background(), &dlzamanagerproto.IdsWithSQLInterval{Ids: cash.GetKeys(), Interval: fmt.Sprintf("'%d' day", conf.DaysWithoutCheck), AvailabilityInterval: fmt.Sprintf("'%d' minute", conf.MinutesToWaitAvailability)})
 				if err != nil {
 					logger.Error().Msgf("cannot get GetObjectExceptListOlderThanWithChecks. err: %v", err)
 				}
 				if object.Id == "" {
 					break
 				}
-				objectCash[object.Id] = object
+				cash.Add(object)
 				jobChan <- object
-				if len(objectCash) == conf.AmountOfWorkers {
+				if cash.Len() == conf.AmountOfWorkers {
 					for {
 						time.Sleep(time.Duration(conf.TimeToWaitWorker) * time.Second)
-						if len(objectCash) < conf.AmountOfWorkers {
+						if cash.Len() < conf.AmountOfWorkers {
 							break
 						}
 					}
