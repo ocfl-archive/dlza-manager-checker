@@ -1,14 +1,15 @@
 package configuration
 
 import (
+	"io/fs"
+	"os"
+
 	"emperror.dev/errors"
 	"github.com/BurntSushi/toml"
 	"github.com/je4/filesystem/v2/pkg/vfsrw"
 	"github.com/je4/utils/v2/pkg/config"
 	"github.com/je4/utils/v2/pkg/stashconfig"
 	loaderConfig "go.ub.unibas.ch/cloud/certloader/v2/pkg/loader"
-	"io/fs"
-	"os"
 )
 
 type DispatcherConfig struct {
@@ -35,6 +36,8 @@ type DispatcherConfig struct {
 	VFS                       map[string]*vfsrw.VFS `toml:"vfs"`
 	Log                       stashconfig.Config    `toml:"log"`
 	ActionTemplateTimeout     config.Duration       `toml:"actiontemplatetimeout"`
+	Addresses                 map[string]string     `toml:"addresses"`
+	NetName                   string                `toml:"netname"`
 	CollectionCacheTimeout    config.Duration       `toml:"collectioncachetimeout"`
 	CollectionCacheSize       int                   `toml:"collectioncachesize"`
 	ItemCacheSize             int                   `toml:"itemcachesize"`

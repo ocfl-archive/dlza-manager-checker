@@ -19,6 +19,11 @@ amountofworkers = 10
 
 ActionTemplateTimeout = "10s"
 
+netname = "local"
+
+[addresses]
+local = ":0"
+
 #iiifbaseaction = "convert/formatjp2/"
 
 #[grpcclient]
