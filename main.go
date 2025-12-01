@@ -26,7 +26,7 @@ import (
 	"github.com/rs/zerolog/log"
 	ublogger "gitlab.switch.ch/ub-unibas/go-ublogger/v2"
 	"go.ub.unibas.ch/cloud/certloader/v2/pkg/loader"
-	"go.ub.unibas.ch/cloud/miniresolver/v2/pkg/resolver"
+	"go.ub.unibas.ch/cloud/miniresolverclient/pkg/miniresolverclient"
 	"golang.org/x/exp/maps"
 
 	"github.com/ocfl-archive/dlza-manager-checker/configuration"
@@ -188,7 +188,7 @@ func main() {
 	defer clientLoader.Close()
 
 	logger.Info().Msgf("resolver address is %s", conf.ResolverAddr)
-	resolverClient, err := resolver.NewMiniresolverClientNet(conf.ResolverAddr, conf.NetName, conf.GRPCClient, clientCert, nil, time.Duration(conf.ResolverTimeout), time.Duration(conf.ResolverNotFoundTimeout), logger)
+	resolverClient, err := miniresolverclient.NewMiniresolverClientNet(conf.ResolverAddr, conf.NetName, conf.GRPCClient, clientCert, nil, time.Duration(conf.ResolverTimeout), time.Duration(conf.ResolverNotFoundTimeout), logger)
 	if err != nil {
 		logger.Fatal().Msgf("cannot create resolver client: %s", err)
 	}
@@ -196,7 +196,7 @@ func main() {
 
 	//////CheckerStorageHandler gRPC connection
 
-	clientCheckerHandler, err := resolver.NewClient[handlerClientProto.CheckerHandlerServiceClient](
+	clientCheckerHandler, err := miniresolverclient.NewClient[handlerClientProto.CheckerHandlerServiceClient](
 		resolverClient,
 		handlerClientProto.NewCheckerHandlerServiceClient,
 		handlerClientProto.CheckerHandlerService_ServiceDesc.ServiceName, conf.Domain)
@@ -206,7 +206,7 @@ func main() {
 
 	//////CheckerStorageHandler gRPC connection
 
-	clientCheckerStorageHandler, err := resolver.NewClient[storageHandlerClientProto.CheckerStorageHandlerServiceClient](
+	clientCheckerStorageHandler, err := miniresolverclient.NewClient[storageHandlerClientProto.CheckerStorageHandlerServiceClient](
 		resolverClient,
 		storageHandlerClientProto.NewCheckerStorageHandlerServiceClient,
 		storageHandlerClientProto.CheckerStorageHandlerService_ServiceDesc.ServiceName, conf.Domain)
