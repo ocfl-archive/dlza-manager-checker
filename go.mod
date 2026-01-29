@@ -1,6 +1,6 @@
 module github.com/ocfl-archive/dlza-manager-checker
 
-go 1.25.4
+go 1.25.6
 
 require (
 	emperror.dev/errors v0.8.1

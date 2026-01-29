@@ -47,32 +47,32 @@ const (
 )
 
 type Cash struct {
-	mu         sync.Mutex
-	ObjectCash map[string]*dlzamanagerproto.Object
+	mu             sync.Mutex
+	ObjectInstCash map[string]*dlzamanagerproto.ObjectInstance
 }
 
-func (c *Cash) Add(obj *dlzamanagerproto.Object) {
+func (c *Cash) Add(objIns *dlzamanagerproto.ObjectInstance) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.ObjectCash[obj.Id] = obj
+	c.ObjectInstCash[objIns.Id] = objIns
 }
 
 func (c *Cash) Len() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return len(c.ObjectCash)
+	return len(c.ObjectInstCash)
 }
 
 func (c *Cash) GetKeys() []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return maps.Keys(c.ObjectCash)
+	return maps.Keys(c.ObjectInstCash)
 }
 
 func (c *Cash) Delete(id string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	delete(c.ObjectCash, id)
+	delete(c.ObjectInstCash, id)
 }
 
 var cash *Cash
@@ -87,24 +87,24 @@ var conf *configuration.DispatcherConfig
 
 var workerWaitingTime int
 
-func worker(id int, in <-chan *dlzamanagerproto.Object, checkerHandlerServiceClient handlerClientProto.CheckerHandlerServiceClient,
+func worker(id int, in <-chan *dlzamanagerproto.ObjectInstance, checkerHandlerServiceClient handlerClientProto.CheckerHandlerServiceClient,
 	checkerStorageHandlerServiceClient storageHandlerClientProto.CheckerStorageHandlerServiceClient, wg *sync.WaitGroup, logger zLogger.ZLogger) {
 	defer wg.Done()
 	for {
 		select {
-		case obj, ok := <-in:
+		case objInst, ok := <-in:
 			if !ok {
 				logger.Info().Msgf("Data channel is closed. Worker ID: %d", id)
 				return
 			}
-			err := checkObjectsAndReact(checkerHandlerServiceClient, checkerStorageHandlerServiceClient, obj, logger)
+			err := checkObjectInstancesAndReact(checkerHandlerServiceClient, checkerStorageHandlerServiceClient, objInst, logger)
 			if err != nil {
-				logger.Error().Msgf("cannot checkObjectInstancesDistributionAndReact for object with ID %s, err: %v", obj.Id, err)
-				cash.Delete(obj.Id)
+				logger.Error().Msgf("cannot checkObjectInstancesDistributionAndReact for object with ID %s, err: %v", objInst.Id, err)
+				cash.Delete(objInst.Id)
 				continue
 			}
-			logger.Info().Msgf("Worker ID: %d finished to process object with ID: %s", id, obj.Id)
-			cash.Delete(obj.Id)
+			logger.Info().Msgf("Worker ID: %d finished to process object with ID: %s", id, objInst.Id)
+			cash.Delete(objInst.Id)
 			logger.Debug().Msgf("Worker ID: %d cleared cash. Cash length: %d", id, cash.Len())
 		case <-time.After(time.Duration(workerWaitingTime) * time.Second):
 			//logger.Debug().Msgf("Timeout: no value received in %d second. Worker ID: %d", workerWaitingTime, id)
@@ -214,8 +214,8 @@ func main() {
 		logger.Panic().Msgf("cannot create clientCheckerStorageHandler grpc client: %s", err)
 	}
 	workerWaitingTime = conf.WorkerWaitingTime
-	cash = &Cash{ObjectCash: make(map[string]*dlzamanagerproto.Object)}
-	jobChan := make(chan *dlzamanagerproto.Object)
+	cash = &Cash{ObjectInstCash: make(map[string]*dlzamanagerproto.ObjectInstance)}
+	jobChan := make(chan *dlzamanagerproto.ObjectInstance)
 	wg := &sync.WaitGroup{}
 	for i := 0; i < conf.AmountOfWorkers; i++ {
 		wg.Add(1)
@@ -227,15 +227,15 @@ func main() {
 		defer wg.Done()
 		for {
 			for {
-				object, err := clientCheckerHandler.GetObjectExceptListOlderThanWithChecks(context.Background(), &dlzamanagerproto.IdsWithSQLInterval{Ids: cash.GetKeys(), Interval: fmt.Sprintf("'%d' day", conf.DaysWithoutCheck), AvailabilityInterval: fmt.Sprintf("'%d' minute", conf.MinutesToWaitAvailability)})
+				objectInstance, err := clientCheckerHandler.GetObjectInstanceExceptListOlderThanWithChecks(context.Background(), &dlzamanagerproto.IdsWithSQLInterval{Ids: cash.GetKeys(), Interval: fmt.Sprintf("'%d' day", conf.DaysWithoutCheck), AvailabilityInterval: fmt.Sprintf("'%d' minute", conf.MinutesToWaitAvailability)})
 				if err != nil {
-					logger.Error().Msgf("cannot get GetObjectExceptListOlderThanWithChecks. err: %v", err)
+					logger.Error().Msgf("cannot get GetObjectInstanceExceptListOlderThanWithChecks. err: %v", err)
 				}
-				if object.Id == "" {
+				if objectInstance.Id == "" {
 					break
 				}
-				cash.Add(object)
-				jobChan <- object
+				cash.Add(objectInstance)
+				jobChan <- objectInstance
 				if cash.Len() == conf.AmountOfWorkers {
 					for {
 						time.Sleep(time.Duration(conf.TimeToWaitWorker) * time.Second)
@@ -264,50 +264,48 @@ func main() {
 
 }
 
-func checkObjectsAndReact(checkerHandlerServiceClient handlerClientProto.CheckerHandlerServiceClient,
-	checkerStorageHandlerServiceClient storageHandlerClientProto.CheckerStorageHandlerServiceClient, obj *dlzamanagerproto.Object, logger zLogger.ZLogger) error {
-	objectInstances, err := checkerHandlerServiceClient.GetObjectsInstancesByObjectId(context.Background(), &dlzamanagerproto.Id{Id: obj.Id})
+func checkObjectInstancesAndReact(checkerHandlerServiceClient handlerClientProto.CheckerHandlerServiceClient,
+	checkerStorageHandlerServiceClient storageHandlerClientProto.CheckerStorageHandlerServiceClient, objInst *dlzamanagerproto.ObjectInstance, logger zLogger.ZLogger) error {
+	object, err := checkerHandlerServiceClient.GetObjectById(context.Background(), &dlzamanagerproto.Id{Id: objInst.ObjectId})
 	if err != nil {
-		logger.Error().Msgf("cannot get GetObjectsInstancesByObjectId for object with id: %s. err: %v", obj.Id, err)
-		return errors.Wrapf(err, "cannot get GetObjectsInstancesByObjectId for object with id: %s", obj.Id)
+		logger.Error().Msgf("cannot get GetObjectById for object with id: %s. err: %v", objInst.ObjectId, err)
+		return errors.Wrapf(err, "cannot get GetObjectById for object with id: %s", objInst.ObjectId)
 	}
-	for _, objectInstance := range objectInstances.ObjectInstances {
-		if objectInstance.Status == newStatus || objectInstance.Status == okStatus {
-			checksum, err := checkerStorageHandlerServiceClient.GetObjectInstanceChecksum(context.Background(), objectInstance)
+	if objInst.Status == newStatus || objInst.Status == okStatus {
+		checksum, err := checkerStorageHandlerServiceClient.GetObjectInstanceChecksum(context.Background(), objInst)
+		if err != nil {
+			if strings.Contains(err.Error(), "certificate") || strings.Contains(err.Error(), "authentication") || strings.Contains(err.Error(), "handshake failed") {
+				logger.Fatal().Err(err).Msgf("cannot reach storage handler %v", err)
+			}
+			logger.Error().Msgf("cannot get GetObjectInstanceChecksum for object instance with id: %s. err: %v", objInst.Id, err)
+			_, err = checkerHandlerServiceClient.CreateObjectInstanceCheck(context.Background(), &dlzamanagerproto.ObjectInstanceCheck{ObjectInstanceId: objInst.Id,
+				Error: true, Message: fmt.Sprintf("cannot get checksum for object instance: %s", err), CheckType: existsStatus})
 			if err != nil {
-				if strings.Contains(err.Error(), "certificate") || strings.Contains(err.Error(), "authentication") || strings.Contains(err.Error(), "handshake failed") {
-					logger.Fatal().Err(err).Msgf("cannot reach storage handler %v", err)
-				}
-				logger.Error().Msgf("cannot get GetObjectInstanceChecksum for object instance with id: %s. err: %v", objectInstance.Id, err)
-				_, err = checkerHandlerServiceClient.CreateObjectInstanceCheck(context.Background(), &dlzamanagerproto.ObjectInstanceCheck{ObjectInstanceId: objectInstance.Id,
-					Error: true, Message: fmt.Sprintf("cannot get checksum for object instance: %s", err), CheckType: existsStatus})
-				if err != nil {
-					logger.Error().Msgf("cannot create instance check object for file %s, %v", objectInstance.Path, err)
-					continue
-				}
-				err := checkAmountOfErrorsAndReact(checkerHandlerServiceClient, objectInstance, logger)
-				if err != nil {
-					logger.Error().Msgf("cannot checkAmountOfErrorsAndReact for object instance with path %s, err: %v", objectInstance.Path, err)
-					continue
-				}
-				continue
+				logger.Error().Msgf("cannot create instance check object for file %s, %v", objInst.Path, err)
+				return err
 			}
-			if obj.Checksum != checksum.Id {
-				objectInstance.Status = errorStatus
-				err = updateInstanceAndCreateCheck(checkerHandlerServiceClient, objectInstance, true, "", sha512Status)
-				if err != nil {
-					logger.Error().Msgf("cannot updateInstanceAndCreateCheck for object instance with ID %s for object with false checksum with ID %s, err: %v", objectInstance.Id, objectInstance.ObjectId, err)
-					continue
-				}
-				continue
-			}
-			objectInstance.Status = okStatus
-			err = updateInstanceAndCreateCheck(checkerHandlerServiceClient, objectInstance, false, "", sha512Status)
+			err := checkAmountOfErrorsAndReact(checkerHandlerServiceClient, objInst, logger)
 			if err != nil {
-				logger.Error().Msgf("cannot update instance or create instance check object for file %v, err: %v", objectInstance.Path, err)
+				logger.Error().Msgf("cannot checkAmountOfErrorsAndReact for object instance with path %s, err: %v", objInst.Path, err)
+				return err
 			}
-
+			return err
 		}
+		if object.Checksum != checksum.Id {
+			objInst.Status = errorStatus
+			err = updateInstanceAndCreateCheck(checkerHandlerServiceClient, objInst, true, "", sha512Status)
+			if err != nil {
+				logger.Error().Msgf("cannot updateInstanceAndCreateCheck for object instance with ID %s for object with false checksum with ID %s, err: %v", objInst.Id, objInst.ObjectId, err)
+				return err
+			}
+			return err
+		}
+		objInst.Status = okStatus
+		err = updateInstanceAndCreateCheck(checkerHandlerServiceClient, objInst, false, "", sha512Status)
+		if err != nil {
+			logger.Error().Msgf("cannot update instance or create instance check object for file %v, err: %v", objInst.Path, err)
+		}
+
 	}
 
 	return nil
